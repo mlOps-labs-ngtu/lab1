@@ -39,7 +39,7 @@ def example_debug_dag():
     run_this = debug_task()
     run_2_this = debug_task2()
 
-    run_this >> run_2_this
+    run_this >> run_2_this  # pyright: ignore[reportOperatorIssue]
 
 
 debug_dag = example_debug_dag()

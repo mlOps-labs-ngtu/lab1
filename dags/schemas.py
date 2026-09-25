@@ -18,11 +18,11 @@ source = Table(
     Column("id", Integer, primary_key=True),
     Column("ts", DateTime),
     Column("column1", String(length=50), nullable=True),
-    Column("i_column2", String(length=50), nullable=True),
+    Column("i_column2", Integer, nullable=True),
     Column("column3", String(length=50), nullable=True),
-    Column("i_column4", String(length=50), nullable=True),
+    Column("i_column4", Integer, nullable=True),
     Column("column5", String(length=50), nullable=True),
-    Column("i_column6", String(length=50), nullable=True),
+    Column("i_column6", Integer, nullable=True),
 )
 
 target = Table(
@@ -31,11 +31,11 @@ target = Table(
     Column("id", Integer, primary_key=True),
     Column("ts", DateTime),
     Column("column7", String(length=50), nullable=True),
-    Column("i_column8", String(length=50), nullable=True),
+    Column("i_column8", Integer, nullable=True),
     Column("column9", String(length=50), nullable=True),
-    Column("i_column10", String(length=50), nullable=True),
+    Column("i_column10", Integer, nullable=True),
     Column("column11", String(length=50), nullable=True),
-    Column("i_column12", String(length=50), nullable=True),
+    Column("i_column12", Integer, nullable=True),
 )
 
 # Объект для подвязки схем базы данных

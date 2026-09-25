@@ -11,7 +11,7 @@ services:
     secrets:
       - db_password
     volumes:
-      - postgres_vol:/var/lib/postgresql/data/
+      - postgres_vol:/var/lib/postgresql
       - ./postgres-init:/docker-entrypoint-initdb.d
     healthcheck:
       test:

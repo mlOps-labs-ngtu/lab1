@@ -7,7 +7,6 @@ x-airflow-common: &airflow-common
   #   - .env
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-    AIRFLOW__CORE__AUTH_MANAGER: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:db-password@postgres/airflow
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:db-password@postgres/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
@@ -24,6 +23,13 @@ x-airflow-common: &airflow-common
     AIRFLOW__LOGGING__LOG_ROTATION_WHEN: "M"
     AIRFLOW__LOGGING__LOG_ROTATION_INTERVAL: "10"
     AIRFLOW__LOGGING__LOG_ROTATION_BACKUP_COUNT: "1"
+
+    # auth
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
+    # Путь к файлу внутри контейнера
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/config/passwords.json
+    # # Отключаем режим "все пользователи админы"
+    # AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: False
 
     # The following line can be used to set a custom config file, stored in the local config folder
     AIRFLOW_CONFIG: "/opt/airflow/config/airflow.cfg"

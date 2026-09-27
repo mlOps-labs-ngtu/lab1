@@ -1,6 +1,6 @@
 import logging
-from datetime import datetime, timedelta
 import random
+from datetime import datetime, timedelta
 from typing import Any
 
 from airflow.providers.postgres.hooks.postgres import PostgresHook

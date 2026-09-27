@@ -2,7 +2,6 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from airflow.exceptions import AirflowNotFoundException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.sdk import (
     Variable,
@@ -10,6 +9,7 @@ from airflow.sdk import (
     task,
 )
 from airflow.sdk.definitions.xcom_arg import PlainXComArg
+from airflow.sdk.exceptions import AirflowNotFoundException
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy import and_, insert, select
 

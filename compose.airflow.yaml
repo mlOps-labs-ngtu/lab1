@@ -127,7 +127,9 @@ services:
     <<: *airflow-common
     build:
       context: ./airflow_dockerfile
-      dockerfile: Dev.Dockerfile
+      dockerfile: Dockerfile
+      args:
+        EXTRAS: "debug"
     profiles:
       - debug
     entrypoint: /debug_entrypoint

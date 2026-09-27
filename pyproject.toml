@@ -1,21 +1,26 @@
 [project]
-name = "lab3-metadata"
+name = "lab1-airflow"
 version = "0.1.0"
 description = "Лабораторная с airflow"
 authors = [{ name = "INovikov Home", email = "nov.ilucha@yandex.ru" }]
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
-dependencies = [
-  "apache-airflow[standard,async,celery,postgres] (>=3.1.0,<4.0.0)",
-  "pandas (>=2.3.3,<3.0.0)",
-  "faker (>=37.12.0,<38.0.0)",
-]
+dependencies = ["pandas (>=2.3.3,<3.0.0)", "faker (>=37.12.0,<38.0.0)"]
 
 [tool.poetry]
 package-mode = false
 
-[tool.poetry.group.dev.dependencies]
-pandas-stubs = "^2.3.2.250926"
+[dependency-groups]
+dev = [
+  "pandas-stubs (>=2.3.2.250926,<3.0.0.0)",
+  "apache-airflow[standard,async,celery,postgres] (>=3.3.2,<4.0.0)",
+]
+airflow = [
+  "apache-airflow-providers-celery (>=3.24.0,<4.0.0)",
+  "apache-airflow-providers-postgres (>=7.0.2,<8.0.0)",
+]
+debug = ["debugpy (>=1.8.21,<2.0.0)"]
+
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

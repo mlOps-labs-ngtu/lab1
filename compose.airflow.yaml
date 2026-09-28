@@ -1,8 +1,11 @@
 ---
 x-airflow-common: &airflow-common
   build:
-    context: ./airflow_dockerfile
+    context: .
     dockerfile: Dockerfile
+    args:
+      AIRFLOW_VERSION: ${AIRFLOW_VERSION:-3.3.2}
+      PYTHON_VERSION: ${PYTHON_VERSION:-3.13}
   # env_file:
   #   - .env
   environment: &airflow-common-env
@@ -126,7 +129,7 @@ services:
   airflow-debug-worker:
     <<: *airflow-common
     build:
-      context: ./airflow_dockerfile
+      context: .
       dockerfile: Dockerfile
       args:
         EXTRAS: "debug"

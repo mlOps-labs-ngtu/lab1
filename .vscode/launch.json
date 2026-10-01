@@ -15,7 +15,7 @@
           "remoteRoot": "/opt/airflow/dags"
         },
         {
-          "localRoot": "${workspaceFolder}/venv/lib",
+          "localRoot": "${workspaceFolder}/.venv/lib",
           "remoteRoot": "/home/airflow/.local/lib"
         }
       ],

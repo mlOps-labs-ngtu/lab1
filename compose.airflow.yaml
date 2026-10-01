@@ -11,6 +11,8 @@ x-airflow-common: &airflow-common
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:db-password@postgres/airflow
+    # Подключение к БД `ts` пайплайна временных рядов (создаётся Airflow автоматически из env)
+    AIRFLOW_CONN_TS_ETL_CONN_ID: "postgresql+psycopg2://airflow:db-password@postgres:5432/ts"
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:db-password@postgres/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ""
@@ -42,6 +44,7 @@ x-airflow-common: &airflow-common
     - ./logs:/opt/airflow/logs
     - ./plugins:/opt/airflow/plugins
     - ./config:/opt/airflow/config
+    - ./migrations:/opt/airflow/migrations
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on: &airflow-common-depends-on
     redis:

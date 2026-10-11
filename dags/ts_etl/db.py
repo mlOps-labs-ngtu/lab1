@@ -7,21 +7,39 @@
 только через text("CURRENT_TIMESTAMP") — func.now() в DDL ломает CREATE TABLE
 на SQLite (тесты).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
 from sqlalchemy import (
-    JSON, Boolean, Column, DateTime, Double, Integer, MetaData, Numeric,
-    String, Table, delete, insert, select, text, update,
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Double,
+    Integer,
+    MetaData,
+    Numeric,
+    String,
+    Table,
+    delete,
+    insert,
+    select,
+    text,
+    update,
 )
+from sqlalchemy.engine import Connection
 
 metadata = MetaData()
 
 raw_datasets = Table(
-    "raw_datasets", metadata,
+    "raw_datasets",
+    metadata,
     Column("ds_id", String, primary_key=True),
-    Column("fetched_at", DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")),
+    Column(
+        "fetched_at", DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
+    ),
     Column("title", String),
     Column("unit", String),
     Column("freq", String),
@@ -31,7 +49,8 @@ raw_datasets = Table(
 )
 
 series_config = Table(
-    "series_config", metadata,
+    "series_config",
+    metadata,
     Column("series_id", String, primary_key=True),
     Column("title", String),
     Column("unit", String),
@@ -47,7 +66,8 @@ series_config = Table(
 )
 
 series_long = Table(
-    "series_long", metadata,
+    "series_long",
+    metadata,
     Column("ds_id", String, nullable=False, primary_key=True),
     Column("series_label", String, nullable=False, primary_key=True),
     Column("period_order", Integer, nullable=False, primary_key=True),
@@ -56,7 +76,8 @@ series_long = Table(
 )
 
 rolling_means = Table(
-    "rolling_means", metadata,
+    "rolling_means",
+    metadata,
     Column("ds_id", String, nullable=False, primary_key=True),
     Column("series_label", String, nullable=False, primary_key=True),
     Column("period_order", Integer, nullable=False, primary_key=True),
@@ -65,7 +86,8 @@ rolling_means = Table(
 )
 
 decomposition = Table(
-    "decomposition", metadata,
+    "decomposition",
+    metadata,
     Column("ds_id", String, nullable=False, primary_key=True),
     Column("series_label", String, nullable=False, primary_key=True),
     Column("period_order", Integer, nullable=False, primary_key=True),
@@ -74,7 +96,8 @@ decomposition = Table(
 )
 
 stationarity = Table(
-    "stationarity", metadata,
+    "stationarity",
+    metadata,
     Column("ds_id", String, nullable=False, primary_key=True),
     Column("series_label", String, nullable=False, primary_key=True),
     Column("statistic", Double),
@@ -88,7 +111,8 @@ stationarity = Table(
 )
 
 acf_values = Table(
-    "acf_values", metadata,
+    "acf_values",
+    metadata,
     Column("ds_id", String, nullable=False, primary_key=True),
     Column("series_label", String, nullable=False, primary_key=True),
     Column("lag", Integer, nullable=False, primary_key=True),
@@ -98,7 +122,8 @@ acf_values = Table(
 )
 
 forecasts = Table(
-    "forecasts", metadata,
+    "forecasts",
+    metadata,
     Column("ds_id", String, nullable=False, primary_key=True),
     Column("series_label", String, nullable=False, primary_key=True),
     Column("model", String, nullable=False, primary_key=True),
@@ -107,7 +132,9 @@ forecasts = Table(
     Column("horizon", Integer, nullable=False),
     Column("value", Double, nullable=False),
     Column("params", JSON),
-    Column("created_at", DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")),
+    Column(
+        "created_at", DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
+    ),
 )
 
 
@@ -116,20 +143,24 @@ def get_ts_database_url() -> str:
     return "postgresql+psycopg2://airflow:db-password@postgres:5432/ts"
 
 
-def upsert_raw_dataset(con, ds: dict) -> None:
+def upsert_raw_dataset(con: Connection, ds: dict[str, object]) -> None:
     """Upsert по ds_id, переписывает payload целиком."""
-    values = dict(
-        ds_id=ds["id"], title=ds.get("title"), unit=ds.get("unit"),
-        freq=ds.get("freq"), n_series=ds.get("n_series"),
-        n_periods=ds.get("n_periods"), payload=ds,
-    )
+    values: dict[str, object] = {
+        "ds_id": ds["id"],
+        "title": ds.get("title"),
+        "unit": ds.get("unit"),
+        "freq": ds.get("freq"),
+        "n_series": ds.get("n_series"),
+        "n_periods": ds.get("n_periods"),
+        "payload": ds,
+    }
     exists = con.execute(
         select(raw_datasets.c.ds_id).where(raw_datasets.c.ds_id == ds["id"])
     ).scalar_one_or_none()
     if exists is None:
-        con.execute(insert(raw_datasets).values(**values))
+        _ = con.execute(insert(raw_datasets).values(**values))
     else:
-        con.execute(
+        _ = con.execute(
             update(raw_datasets)
             .where(raw_datasets.c.ds_id == ds["id"])
             .values({k: v for k, v in values.items() if k != "ds_id"})
@@ -137,8 +168,14 @@ def upsert_raw_dataset(con, ds: dict) -> None:
 
 
 def upsert_series_config(
-    con, *, series_id: str, title: str | None, unit: str | None, freq: str | None,
-    source_url: str | None, n_points: int,
+    con: Connection,
+    *,
+    series_id: str,
+    title: str | None,
+    unit: str | None,
+    freq: str | None,
+    source_url: str | None,
+    n_points: int,
 ) -> None:
     """Новый ряд — insert с дефолтами; существующий — ТОЛЬКО авто-колонки.
 
@@ -149,30 +186,39 @@ def upsert_series_config(
         select(series_config.c.series_id).where(series_config.c.series_id == series_id)
     ).scalar_one_or_none()
     if exists is None:
-        con.execute(
+        _ = con.execute(
             insert(series_config).values(
-                series_id=series_id, title=title, unit=unit, freq=freq,
-                source_url=source_url, n_points=n_points,
+                series_id=series_id,
+                title=title,
+                unit=unit,
+                freq=freq,
+                source_url=source_url,
+                n_points=n_points,
                 last_seen_at=text("CURRENT_TIMESTAMP"),
             )
         )
     else:
-        con.execute(
+        _ = con.execute(
             update(series_config)
             .where(series_config.c.series_id == series_id)
             .values(
-                title=title, unit=unit, freq=freq,
-                source_url=source_url, n_points=n_points,
+                title=title,
+                unit=unit,
+                freq=freq,
+                source_url=source_url,
+                n_points=n_points,
                 last_seen_at=text("CURRENT_TIMESTAMP"),
             )
         )
 
 
-def replace_rows(con, table, ds_id: str, rows: list[dict]) -> int:
+def replace_rows(
+    con: Connection, table: Table, ds_id: str, rows: list[dict[str, object]]
+) -> int:
     """DELETE по ds_id + INSERT в рамках текущей транзакции. Идемпотентно."""
-    con.execute(delete(table).where(table.c.ds_id == ds_id))
+    _ = con.execute(delete(table).where(table.c.ds_id == ds_id))
     if rows:
-        con.execute(insert(table), rows)
+        _ = con.execute(insert(table), rows)
     return len(rows)
 
 

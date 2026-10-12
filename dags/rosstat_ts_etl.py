@@ -13,12 +13,13 @@ extract (raw wide + config) → dedup/clean → long
 from __future__ import annotations
 
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import TypedDict, cast
 
 import pandas as pd
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.sdk import Variable, dag, task
-from sqlalchemy import select
+from sqlalchemy import Table, select
 
 from dags.ts_etl.analytics import (
     SEASONAL_BY_FREQ,
@@ -53,12 +54,20 @@ CONN_ID = "ts_etl_conn_id"
 ROLLING_WINDOWS = (3, 6, 12)
 
 
+class ExtractMeta(TypedDict):
+    """Метаданные датасета, проходящие между тасками DAG."""
+
+    ds_id: str
+    freq: str | None
+    title: str | None
+
+
 def _engine():
     return PostgresHook(CONN_ID).get_sqlalchemy_engine()
 
 
 @task(task_id="extract_dataset")
-def extract_dataset(ds_id: str) -> dict[str, Any]:
+def extract_dataset(ds_id: str) -> ExtractMeta:
     """1) GET /api/dataset/{ds_id}; 2) upsert raw_datasets + series_config."""
     client = RosstatClient(api_key=Variable.get("rosstat_api_key", default=None))
     try:
@@ -66,38 +75,54 @@ def extract_dataset(ds_id: str) -> dict[str, Any]:
     except Exception:
         logger.exception("Не удалось получить датасет «%s» из roschart.ru", ds_id)
         raise
-    n_points = sum(sum(v is not None for v in s["values"]) for s in ds["series"])
+    n_points = sum(sum(v is not None for v in s["values"]) for s in ds["series"])  # pyright: ignore[reportGeneralTypeIssues]
     with _engine().begin() as con:
         upsert_raw_dataset(con, ds)
         upsert_series_config(
             con,
             series_id=ds_id,
-            title=ds.get("title"),
-            unit=ds.get("unit"),
-            freq=ds.get("freq"),
-            source_url=ds.get("source_url"),
+            title=str(ds.get("title", "Empty")),
+            unit=ds.get("unit"),  # pyright: ignore[reportArgumentType]
+            freq=ds.get("freq"),  # pyright: ignore[reportArgumentType]
+            source_url=ds.get("source_url"),  # pyright: ignore[reportArgumentType]
             n_points=n_points,
         )
     logger.info(
         "Датасет %s: series=%s periods=%s", ds_id, ds["n_series"], ds["n_periods"]
     )
-    return {"ds_id": ds_id, "freq": ds.get("freq"), "title": ds.get("title")}
+    return {
+        "ds_id": ds_id,
+        "freq": str(ds.get("freq")),
+        "title": str(ds.get("title", "Empty")),
+    }
 
 
 @task(task_id="dedup_clean_to_long")
-def dedup_clean_to_long(meta: dict) -> int:
+def dedup_clean_to_long(meta: ExtractMeta) -> int:
     """Свежий payload из raw_datasets → wide_to_long (dedup + NaN) → series_long."""
     ds_id = meta["ds_id"]
     with _engine().connect() as con:
-        raw = con.execute(
-            select(raw_datasets.c.payload).where(raw_datasets.c.ds_id == ds_id)
-        ).scalar_one()
+        raw = cast(
+            "dict[str, object]",
+            con.execute(
+                select(raw_datasets.c.payload).where(raw_datasets.c.ds_id == ds_id)
+            ).scalar_one(),
+        )
     df = wide_to_long(raw)
-    rows = df.assign(ds_id=ds_id)[
-        ["ds_id", "series_label", "period", "period_order", "value"]
-    ].to_dict("records")
+    rows: list[dict[str, object]] = [
+        {
+            "ds_id": rec["ds_id"],
+            "series_label": rec["series_label"],
+            "period": rec["period"],
+            "period_order": rec["period_order"],
+            "value": rec["value"],
+        }
+        for rec in df.assign(ds_id=ds_id)[
+            ["ds_id", "series_label", "period", "period_order", "value"]
+        ].to_dict("records")
+    ]
     with _engine().begin() as con:
-        replace_rows(con, series_long, ds_id, rows)
+        _ = replace_rows(con, series_long, ds_id, rows)
     logger.info("series_long: %s строк (ds_id=%s)", len(rows), ds_id)
     return len(rows)
 
@@ -131,32 +156,34 @@ def _frames_by_series(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
     return out
 
 
-def _per_series(meta: dict, table, build) -> int:
+def _per_series(
+    meta: ExtractMeta, table: Table, build: Callable[..., list[dict[str, object]]]
+) -> int:
     """Читает series_long, применяет build(ds_id, label, g) -> list[dict] к каждому ряду,
     переписывает таблицу по ds_id (DELETE + INSERT в одной транзакции)."""
     ds_id = meta["ds_id"]
-    rows: list[dict] = []
+    rows: list[dict[str, object]] = []
     for label, g in _frames_by_series(_series_frames(ds_id)):
         rows.extend(build(ds_id, label, g))
     with _engine().begin() as con:
-        replace_rows(con, table, ds_id, rows)
+        _ = replace_rows(con, table, ds_id, rows)
     logger.info("%s: %s строк (ds_id=%s)", table.name, len(rows), ds_id)
     return len(rows)
 
 
 @task(task_id="compute_rolling")
-def compute_rolling(meta: dict) -> int:
-    def build(ds_id, label, g):
+def compute_rolling(meta: ExtractMeta) -> int:
+    def build(ds_id: str, label: str, g: pd.DataFrame) -> list[dict[str, object]]:
         rm = rolling_means(g, windows=ROLLING_WINDOWS)
         return [
             {
                 "ds_id": ds_id,
                 "series_label": label,
-                "period_order": int(r.period_order),
-                "window": int(r.window),
-                "value": float(r.value),
+                "period_order": int(cast("float", rec["period_order"])),
+                "window": int(cast("float", rec["window"])),
+                "value": float(cast("float", rec["value"])),
             }
-            for r in rm.itertuples()
+            for rec in rm.to_dict("records")
         ]
 
     return _per_series(meta, t_rolling_means, build)

@@ -13,7 +13,7 @@ extract (raw wide + config) → dedup/clean → long
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 from typing import TypedDict, cast
 
 import pandas as pd
@@ -23,6 +23,7 @@ from sqlalchemy import Table, select
 
 from dags.ts_etl.analytics import (
     SEASONAL_BY_FREQ,
+    ForecastConfig,
     acf_series,
     decompose_series,
     forecast_series,
@@ -147,12 +148,12 @@ def _series_frames(ds_id: str) -> pd.DataFrame:
 
 def _frames_by_series(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
     """Группы по series_label; ряды короче 2 точек пропускаются с warning."""
-    out = []
+    out: list[tuple[str, pd.DataFrame]] = []
     for label, g in df.groupby("series_label"):
         if len(g) < 2:
             logger.warning("Ряд «%s» короче 2 точек — пропускаем", label)
             continue
-        out.append((label, g.sort_values("period_order")))
+        out.append((str(label), g.sort_values("period_order")))
     return out
 
 
@@ -190,23 +191,27 @@ def compute_rolling(meta: ExtractMeta) -> int:
 
 
 @task(task_id="decompose_series")
-def decompose_series_task(meta: dict) -> int:
-    sp = SEASONAL_BY_FREQ.get(meta.get("freq"))
+def decompose_series_task(meta: ExtractMeta) -> int:
+    freq = meta["freq"]
+    if not isinstance(freq, str):
+        raise TypeError("freq in ExtractMeta is none")
+    sp = SEASONAL_BY_FREQ.get(freq)
 
-    def build(ds_id, label, g):
+    def build(ds_id: str, label: str, g: pd.DataFrame) -> list[dict[str, object]]:
         values = g.set_index("period_order")["value"]
         comps = decompose_series(values, seasonal_period=sp)
-        out = []
+        out: list[dict[str, object]] = []
         for comp, s in comps.items():
-            for order, v in s.items():
+            items = cast("dict[Hashable, float]", s.to_dict())
+            for order, v in items.items():
                 if pd.notna(v):
                     out.append(
                         {
                             "ds_id": ds_id,
                             "series_label": label,
-                            "period_order": int(order),
+                            "period_order": int(cast("int", order)),
                             "component": comp,
-                            "value": float(v),
+                            "value": float(cast("float", v)),
                         }
                     )
         return out
@@ -215,82 +220,91 @@ def decompose_series_task(meta: dict) -> int:
 
 
 @task(task_id="compute_stationarity")
-def compute_stationarity(meta: dict) -> int:
-    def build(ds_id, label, g):
+def compute_stationarity(meta: ExtractMeta) -> int:
+    def build(ds_id: str, label: str, g: pd.DataFrame) -> list[dict[str, object]]:
         r = stationarity_adf(g.set_index("period_order")["value"])
-        return [{"ds_id": ds_id, "series_label": label, **r}]
+        row: dict[str, object] = {"ds_id": ds_id, "series_label": label, **r}
+        return [row]
 
     return _per_series(meta, stationarity, build)
 
 
 @task(task_id="compute_acf")
-def compute_acf(meta: dict) -> int:
-    def build(ds_id, label, g):
+def compute_acf(meta: ExtractMeta) -> int:
+    def build(ds_id: str, label: str, g: pd.DataFrame) -> list[dict[str, object]]:
         df = acf_series(g.set_index("period_order")["value"])
         return [
             {
                 "ds_id": ds_id,
                 "series_label": label,
-                "lag": int(r.lag),
-                "acf": float(r.acf),
-                "ci_lower": float(r.ci_lower),
-                "ci_upper": float(r.ci_upper),
+                "lag": int(cast("float", rec["lag"])),
+                "acf": float(cast("float", rec["acf"])),
+                "ci_lower": float(cast("float", rec["ci_lower"])),
+                "ci_upper": float(cast("float", rec["ci_upper"])),
             }
-            for r in df.itertuples()
+            for rec in df.to_dict("records")
         ]
 
     return _per_series(meta, acf_values, build)
 
 
 @task(task_id="forecast_series")
-def forecast_series_task(meta: dict, context: dict | None = None) -> int:
+def forecast_series_task(
+    meta: ExtractMeta, context: dict[str, object] | None = None
+) -> int:
     """Прогноз по каждому ряду. horizon: run_conf > series_config > 12.
     model: series_config.model; 'auto' → analytics.select_model."""
     ds_id = meta["ds_id"]
-    run_conf = (context or {}).get("run_conf") or {}
-    sp = SEASONAL_BY_FREQ.get(meta.get("freq"))
+    run_conf = cast("dict[str, int]", (context or {}).get("run_conf") or {})
+    freq = meta["freq"]
+    if not isinstance(freq, str):
+        raise TypeError("freq in ExtractMeta is none")
+    sp = SEASONAL_BY_FREQ.get(freq)
     with _engine().connect() as con:
         cfg_row = (
             con.execute(select(series_config).where(series_config.c.series_id == ds_id))
             .mappings()
             .first()
         )
-    rows: list[dict] = []
+    rows: list[dict[str, object]] = []
     for label, g in _frames_by_series(_series_frames(ds_id)):
         values = g.set_index("period_order")["value"]
-        cfg = {
-            "model": cfg_row["model"] if cfg_row else "auto",
+        model_used = (
+            cfg_row["model"]
+            if cfg_row and cfg_row["model"] != "auto"
+            else select_model(values, sp)
+        )
+        cfg: ForecastConfig = {
+            "model": model_used,
             "trend": cfg_row["trend"] if cfg_row else None,
             "seasonal": cfg_row["seasonal"] if cfg_row else None,
-            "alpha": float(cfg_row["alpha"])
-            if cfg_row and cfg_row["alpha"] is not None
-            else None,
+            "alpha": (
+                float(cast("float", cfg_row["alpha"]))
+                if cfg_row and cfg_row["alpha"] is not None
+                else None
+            ),
             "seasonal_period": sp,
         }
         horizon = int(
             run_conf.get("horizon") or (cfg_row["horizon"] if cfg_row else None) or 12
         )
-        model_used = (
-            cfg["model"] if cfg["model"] != "auto" else select_model(values, sp)
-        )
-        cfg["model"] = model_used
         fc, params = forecast_series(values, cfg, horizon)
-        for r in fc.itertuples():
+        for rec in fc.to_dict("records"):
             rows.append(
                 {
                     "ds_id": ds_id,
                     "series_label": label,
-                    "model": cfg["model"],
+                    "model": model_used,
                     "model_used": model_used,
                     "horizon": horizon,
-                    "step": int(r.step),
-                    "value": float(r.value),
+                    "step": int(cast("float", rec["step"])),
+                    "value": float(cast("float", rec["value"])),
                     "params": params,
                 }
             )
         logger.info("%s: model=%s horizon=%s", label, model_used, horizon)
     with _engine().begin() as con:
-        replace_rows(con, forecasts, ds_id, rows)
+        _ = replace_rows(con, forecasts, ds_id, rows)
     logger.info("forecasts: %s строк (ds_id=%s)", len(rows), ds_id)
     return len(rows)
 
@@ -307,12 +321,13 @@ def rosstat_ts_etl(
     ds_id: str = "vvp-kvartal-s-1995-2026-valovoy-vnutrenniy-produkt",
 ) -> None:
     meta = extract_dataset(ds_id=ds_id)
-    dedup_clean_to_long(meta)
-    compute_rolling(meta)
-    decompose_series_task(meta)
-    compute_stationarity(meta)
-    compute_acf(meta)
-    forecast_series_task(meta)
+    meta = cast(ExtractMeta, cast(object, meta))
+    _ = dedup_clean_to_long(meta)
+    _ = compute_rolling(meta)
+    _ = decompose_series_task(meta)
+    _ = compute_stationarity(meta)
+    _ = compute_acf(meta)
+    _ = forecast_series_task(meta)
 
 
 rosstat_ts_etl_dag = rosstat_ts_etl()

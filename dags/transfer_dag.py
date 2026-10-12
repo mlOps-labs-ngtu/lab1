@@ -149,7 +149,7 @@ def debug_psql_dag():
     work_dates = get_last_update()
     max_src_time = get_latest_row_time()
     if not isinstance(work_dates, PlainXComArg):
-        raise RuntimeError("Bad arg type")
+        raise TypeError("Bad arg type")
     transfer_res = transfer_data(
         starttime=work_dates["starttime"],
         endtime=max_src_time,

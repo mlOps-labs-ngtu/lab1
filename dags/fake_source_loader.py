@@ -62,17 +62,9 @@ def load_to_postgres(fake_rows: Any):
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=["example", "fake_data", "postgres"],
-    params={
-        "target_date": Param(
-            default=datetime.now().date().isoformat(),
-            type="string",
-            format="date",
-            description="Дата для генерации записей (YYYY-MM-DD)",
-        ),
-    },
 )
 def fake_source_loader_dag():
-    data = generate_fake_data(target_date="{{ params.target_date }}")
+    data = generate_fake_data(target_date="{{ ds }}")
     _ = load_to_postgres(data)
 
 

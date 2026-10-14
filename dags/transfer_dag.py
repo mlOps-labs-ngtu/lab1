@@ -59,7 +59,7 @@ def get_last_update():
 
 
 @task(task_id="get_latest_row_in_src")
-def get_latest_row_time() -> str:
+def get_latest_row_time() -> datetime:
     logger.info("Start task get_latest_row_time")
     hook = PostgresHook(postgres_conn_id="backend_conn_id")
     engine = hook.get_sqlalchemy_engine()
@@ -78,12 +78,12 @@ def get_latest_row_time() -> str:
 
         except ValidationError as e:
             logger.error(e)
-            raise e
+            raise e from e
         except Exception as e:
             logger.error(e)
-            raise e
+            raise e from e
 
-    return max_row_time.ts.isoformat(sep=" ")
+    return max_row_time.ts
 
 
 @task(task_id="transfer_data")

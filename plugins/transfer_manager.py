@@ -14,7 +14,7 @@ class TransferDateTimeManager:
         self.init_date = init_date
         self.hook = PostgresHook(postgres_conn_id=postgres_conn_id)
 
-    def get_max_date(self) -> str:
+    def get_max_date(self) -> datetime:
         sql = """
             SELECT COALESCE(MAX(max_date), %s)
             FROM transfer_max_dates
@@ -23,10 +23,14 @@ class TransferDateTimeManager:
         result = self.hook.get_first(sql, parameters=(self.init_date, self.table_name))
         max_date = result[0]
         if not isinstance(max_date, datetime):
-            raise RuntimeError("Bad datetime")
-        return max_date.isoformat(sep=" ")
+            raise TypeError("Bad datetime")
+        return max_date
 
-    def update_max_date(self, date_value: str, updated_at=datetime.now()):
+    def update_max_date(
+        self, date_value: datetime, updated_at: datetime | None = None
+    ) -> None:
+        if not isinstance(updated_at, datetime):
+            updated_at = datetime.now()
         sql = """
             INSERT INTO transfer_max_dates (table_name, max_date, updated_at)
             VALUES (%s, %s, %s)

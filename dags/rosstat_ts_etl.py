@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Hashable
+import math
 from typing import TypedDict, cast
 
 import pandas as pd
@@ -248,6 +249,17 @@ def compute_acf(meta: ExtractMeta) -> int:
     return _per_series(meta, acf_values, build)
 
 
+def _clean_for_json(obj: object) -> object:
+    """Рекурсивно заменяет NaN/inf на None — Postgres JSON их не принимает."""
+    if isinstance(obj, dict):
+        return {k: _clean_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_clean_for_json(v) for v in obj]
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return None
+    return obj
+
+
 @task(task_id="forecast_series")
 def forecast_series_task(
     meta: ExtractMeta, context: dict[str, object] | None = None
@@ -299,7 +311,7 @@ def forecast_series_task(
                     "horizon": horizon,
                     "step": int(cast("float", rec["step"])),
                     "value": float(cast("float", rec["value"])),
-                    "params": params,
+                    "params": _clean_for_json(params),
                 }
             )
         logger.info("%s: model=%s horizon=%s", label, model_used, horizon)

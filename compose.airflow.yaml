@@ -150,6 +150,7 @@ services:
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
       - ./config:/opt/airflow/config
+      - ./migrations:/opt/airflow/migrations
       - ./debug_entrypoint.sh:/debug_entrypoint
     depends_on:
       <<: *airflow-common-depends-on
